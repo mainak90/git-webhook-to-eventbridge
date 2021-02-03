@@ -1,136 +1,86 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"bytes"
-	"text/template"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"time"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"os"
 )
 
-type MessageTemplateData struct {
-	URL      string
-	FullName string
-	Version  string
-	Notes    string
-	Channel  string
+const (
+	EventBusName = "auto1-central"
+	EventSource = "gitwebhook.lambda"
+	EventDetail = "github-webhook"
+)
+
+type Event struct {
+	StripeEvent []string `json:"stripeEvent"`
 }
 
-type Request struct {
-	Channel string
-	Payload Payload
-}
-
-// MessageResponse contains data received from Slack
-type MessageResponse struct {
-	OK bool `json:"ok"`
-}
-
-// Payload contains data received from GitHub
-type Payload struct {
-	Release    PayloadRelease    `json:"release"`
-	Repository PayloadRepository `json:"repository"`
-	Sender     PayloadSender     `json:"sender"`
-}
-
-// PayloadSender contains data received from GitHub about the user
-type PayloadSender struct {
-	Name string `json:"login"`
-}
-
-// PayloadRepository contains data received from GitHub about the repository
-type PayloadRepository struct {
-	Name     string `json:"name"`
-	FullName string `json:"full_name"`
-	URL      string `json:"html_url"`
-}
-
-// PayloadRelease contains data received from GitHub about the release
-type PayloadRelease struct {
-	Author     PayloadReleaseAuthor `json:"author"`
-	Name       string               `json:"name"`
-	Body       string               `json:"body"`
-	Date       time.Time            `json:"created_at"`
-	Draft      bool                 `json:"draft"`
-	Prerelease bool                 `json:"prerelease"`
-}
-
-// PayloadReleaseAuthor contains data received from GitHub about the release author
-type PayloadReleaseAuthor struct {
-	Name string `json:"login"`
-	URL  string `json:"html_url"`
-}
-
-func messageFromRequest(request Request) ([]byte, error) {
-	template := messageTemplateFromPayloadForChannel(request.Payload, request.Channel)
-
-	return messageFromTemplate(template)
-}
-
-func messageTemplateFromPayloadForChannel(payload Payload, channel string) MessageTemplateData {
-	return MessageTemplateData{
-		payload.Repository.URL,
-		payload.Repository.FullName,
-		payload.Release.Name,
-		payload.Release.Body,
-		channel,
-	}
-}
-
-func messageFromTemplate(data MessageTemplateData) ([]byte, error) {
-	t, _ := template.ParseFiles("templates/message.json")
-
-	var message bytes.Buffer
-	if err := t.Execute(&message, data); err != nil {
-		return nil, err
-	}
-
-	return message.Bytes(), nil
-}
-
-func parseRequest(req events.APIGatewayProxyRequest) (*Request, error) {
-	payload, err := parsePayload([]byte(req.Body))
-
+func defaultConfig() aws.Config {
+	cfg, err := external.LoadDefaultAWSConfig()
 	if err != nil {
-		return nil, errors.New("Unable to parse request payload")
+		panic("unable to load sdk config, " + err.Error())
 	}
-
-	return &Request{
-		req.PathParameters["channel"],
-		*payload,
-	}, nil
+	cfg.Region = endpoints.EuWest1RegionID
+	return cfg
 }
 
-func parsePayload(data []byte) (*Payload, error) {
-	var payload Payload
+func eventBridgeSession(cfg aws.Config) *eventbridge.Client{
+	return eventbridge.New(cfg)
+}
 
-	err := json.Unmarshal(data, &payload)
+func eventRequestEntry(details string) eventbridge.PutEventsInput{
+	return eventbridge.PutEventsInput{Entries: []eventbridge.PutEventsRequestEntry{
+		{
+			EventBusName: aws.String(EventBusName),
+			Detail:       aws.String(details),
+			DetailType:   aws.String(EventDetail),
+			Source:       aws.String(EventSource),
+		}},
+	}
+}
 
+func dispatchEvent(req events.APIGatewayProxyRequest, cfg aws.Config) error {
+	srv := eventBridgeSession(cfg)
+	details := string([]byte(req.Body))
+
+	e := eventRequestEntry(details)
+	request := srv.PutEventsRequest(&e)
+
+	_, err := request.Send(context.TODO())
 	if err != nil {
-		return nil, err
+		fmt.Fprintf(os.Stderr, "Error %s\n", err)
+		return err
 	}
-
-	return &payload, nil
+	return nil
 }
+
 
 func handle(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Parse needed values from GitHub webhook payload
-	request, err := parseRequest(req)
+	cfg := defaultConfig()
+
+	var message interface{}
+	err := json.Unmarshal([]byte(req.Body), &message)
 	if err != nil {
 		return events.APIGatewayProxyResponse{Body: "Unable to handle request", StatusCode: 500}, nil
 	}
 
-	// Create message from request
-	message, err := messageFromRequest(*request)
-	if err != nil {
-		return events.APIGatewayProxyResponse{Body: "Unable to create message", StatusCode: 500}, nil
-	}
-
 	fmt.Println(message)
 
+	fmt.Println("Dispatching webhook created event..")
+
+	err = dispatchEvent(req, cfg)
+	if err != nil {
+		return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: 503}, nil
+	}
 	// Send response
 	return events.APIGatewayProxyResponse{Body: "{ \"done\": true }", StatusCode: 200}, nil
 }
