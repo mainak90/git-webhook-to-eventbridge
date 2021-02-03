@@ -19,10 +19,6 @@ const (
 	EventDetail = "github-webhook"
 )
 
-type Event struct {
-	StripeEvent []string `json:"stripeEvent"`
-}
-
 func defaultConfig() aws.Config {
 	cfg, err := external.LoadDefaultAWSConfig()
 	if err != nil {
