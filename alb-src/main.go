@@ -1,4 +1,4 @@
-package src
+package main
 
 import (
 	"context"
@@ -10,7 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/mainak90/git-webhook-to-eventbridge/validation"
 	"os"
+
 )
 
 var (
@@ -63,6 +65,23 @@ func handle(req events.ALBTargetGroupRequest) (events.ALBTargetGroupResponse, er
 	// Parse needed values from GitHub webhook payload
 	cfg := defaultConfig()
 
+	event := req.Headers["x-github-event"]
+	delivery := req.Headers["x-github-delivery"]
+	signature := req.Headers["x-hub-signature"]
+	if event == "" || delivery == "" {
+		fmt.Fprintf(os.Stderr, "Missing x-github-* and x-hub-* headers")
+		return events.ALBTargetGroupResponse{Body: "Missing x-github-* and x-hub-* headers", StatusCode: 400}, nil
+	}
+	if signature == "" && secret != "" {
+		fmt.Fprintf(os.Stderr, "GitHub isn't providing a signature, whilst a secret is being used (please give github's webhook the secret)")
+		return events.ALBTargetGroupResponse{Body: "GitHub isn't providing a signature, whilst a secret is being used (please give github's webhook the secret)", StatusCode: 400}, nil
+	}
+
+	if secret != "" {
+		if (IsValidPayloadSignature(secret, signature, []byte(req.Body))){
+
+		}
+	}
 	var message interface{}
 	err := json.Unmarshal([]byte(req.Body), &message)
 	if err != nil {
