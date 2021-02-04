@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// IsValidPayload checks if the github payload's hash fits with
-// the hash computed by GitHub sent as a header
+// IsValidPayload checks if the github payload's hash fits with the hash computed by GitHub sent as a header
 func IsValidPayload(secret, headerHash string, payload []byte) bool {
 	hash := HashPayload(secret, payload)
 	return hmac.Equal(
@@ -17,12 +16,11 @@ func IsValidPayload(secret, headerHash string, payload []byte) bool {
 	)
 }
 
-// HashPayload computes the hash of payload's body according to the webhook's secret token
-// see https://developer.github.com/webhooks/securing/#validating-payloads-from-github
+// HashPayload computes the hash of payload's body according to the webhook's secret token see https://developer.github.com/webhooks/securing/#validating-payloads-from-github
 // returning the hash as a hexadecimal string
-func HashPayload(secret string, playloadBody []byte) string {
+func HashPayload(secret string, payloadBody []byte) string {
 	hm := hmac.New(sha1.New, []byte(secret))
-	hm.Write(playloadBody)
+	hm.Write(payloadBody)
 	sum := hm.Sum(nil)
 	return fmt.Sprintf("%x", sum)
 }
@@ -41,8 +39,6 @@ func IsValidPayloadSignature(secret, signatureHeader string, body []byte) (bool,
 		return false, fmt.Errorf("Signature should be a 'sha1' hash not '%s'", signature_type)
 	}
 
-	// Check that payload came from github
-	// skip check if empty secret provided
 	if !IsValidPayload(secret, signature_hash, body) {
 		return false, fmt.Errorf("Payload did not come from GitHub")
 	}

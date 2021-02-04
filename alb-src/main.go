@@ -10,15 +10,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/mainak90/git-webhook-to-eventbridge/validation"
 	"os"
-
 )
 
 var (
 	EventBusName = os.Getenv("EVENT_BUS_NAME")
 	EventSource = "gitwebhook.lambda"
 	EventDetail = os.Getenv("EVENT_DETAIL")
+	SSMParameterName = os.Getenv("SSM_PARAM")
 )
 
 func defaultConfig() aws.Config {
@@ -60,30 +61,62 @@ func dispatchEvent(req events.ALBTargetGroupRequest, cfg aws.Config) error {
 	return nil
 }
 
+func getSSMParameter(cfg aws.Config) (string, error) {
+	var paramPointer = new(string)
+	*paramPointer = SSMParameterName
+		client := ssm.New(cfg)
+
+	input := &ssm.GetParameterInput{
+		Name: paramPointer,
+	}
+	// Current GetParameterRequest call can directly wrap around req, resp var. Cannot be used here
+	result := client.GetParameterRequest(input)
+
+	resp, err := result.Send(context.Background())
+	if err != nil {
+		return "", err
+	}
+	//As resp struct(obj) --> Nested struct parameter --> Value == *String
+	return *resp.Parameter.Value, nil
+}
+
 
 func handle(req events.ALBTargetGroupRequest) (events.ALBTargetGroupResponse, error) {
 	// Parse needed values from GitHub webhook payload
 	cfg := defaultConfig()
 
-	event := req.Headers["x-github-event"]
-	delivery := req.Headers["x-github-delivery"]
-	signature := req.Headers["x-hub-signature"]
-	if event == "" || delivery == "" {
-		fmt.Fprintf(os.Stderr, "Missing x-github-* and x-hub-* headers")
-		return events.ALBTargetGroupResponse{Body: "Missing x-github-* and x-hub-* headers", StatusCode: 400}, nil
+	secret, err := getSSMParameter(cfg)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error %s\n", err)
+		return events.ALBTargetGroupResponse{Body: err.Error(), StatusCode: 503}, nil
 	}
+
+
+	event, delivery, signature := req.Headers["x-github-event"], req.Headers["x-github-delivery"], req.Headers["x-hub-signature"]
+
+	if event == "" || delivery == "" {
+		fmt.Fprintf(os.Stderr, "Missing x-github-event and x-hub-delivery headers")
+		return events.ALBTargetGroupResponse{Body: "Missing x-github-event and x-hub-delivery headers", StatusCode: 400}, nil
+	}
+
 	if signature == "" && secret != "" {
 		fmt.Fprintf(os.Stderr, "GitHub isn't providing a signature, whilst a secret is being used (please give github's webhook the secret)")
 		return events.ALBTargetGroupResponse{Body: "GitHub isn't providing a signature, whilst a secret is being used (please give github's webhook the secret)", StatusCode: 400}, nil
 	}
 
 	if secret != "" {
-		if (IsValidPayloadSignature(secret, signature, []byte(req.Body))){
-
+		isValid, err := validation.IsValidPayloadSignature(secret, signature, []byte(req.Body))
+		if err != nil {
+			return events.ALBTargetGroupResponse{Body: err.Error(), StatusCode: 400}, nil
+		}
+		if (isValid) {
+			fmt.Fprintf(os.Stderr, "Payload validated, coming from github...")
 		}
 	}
+
 	var message interface{}
-	err := json.Unmarshal([]byte(req.Body), &message)
+	err = json.Unmarshal([]byte(req.Body), &message)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error %s\n", err)
 		return events.ALBTargetGroupResponse{Body: "Unable to handle request", StatusCode: 500}, nil
