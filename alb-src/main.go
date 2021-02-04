@@ -13,10 +13,10 @@ import (
 	"os"
 )
 
-const (
-	EventBusName = "auto1-central"
+var (
+	EventBusName = os.Getenv("EVENT_BUS_NAME")
 	EventSource = "gitwebhook.lambda"
-	EventDetail = "github-webhook"
+	EventDetail = os.Getenv("EVENT_DETAIL")
 )
 
 func defaultConfig() aws.Config {
