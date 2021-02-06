@@ -39,6 +39,7 @@ func IsValidPayloadSignature(secret, signatureHeader string, body []byte) (bool,
 		return false, fmt.Errorf("Signature should be a 'sha1' hash not '%s'", signature_type)
 	}
 
+
 	if !IsValidPayload(secret, signature_hash, body) {
 		return false, fmt.Errorf("Payload did not come from GitHub")
 	}
