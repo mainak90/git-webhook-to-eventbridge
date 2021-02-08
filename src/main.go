@@ -9,24 +9,28 @@ import (
 	"github.com/mainak90/git-webhook-to-eventbridge/client"
 	"github.com/mainak90/git-webhook-to-eventbridge/eventbus"
 	"github.com/mainak90/git-webhook-to-eventbridge/validation"
+	"github.com/mainak90/git-webhook-to-eventbridge/cachingclient"
 	"os"
 )
 
 var (
 	SecretParameterName = os.Getenv("SECRET_PARAM")
+	secret = cachingclient.GetSecretCached(SecretParameterName)
 )
 
 func handle(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Parse needed values from GitHub webhook payload
 	cfg := client.DefaultConfig()
 
-	secret, err := cache.GenerateSecretCache(cfg, SecretParameterName)
+	var err error
 
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error %s\n", err)
-		return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: 503}, nil
+	if secret == "" {
+		secret, err = cache.GenerateSecretCache(cfg, SecretParameterName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error %s\n", err)
+			return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: 503}, nil
+		}
 	}
-
 
 	event, delivery, signature := req.Headers["x-github-event"], req.Headers["x-github-delivery"], req.Headers["x-hub-signature"]
 

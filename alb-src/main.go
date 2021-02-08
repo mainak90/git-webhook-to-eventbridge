@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/mainak90/git-webhook-to-eventbridge/cache"
+	"github.com/mainak90/git-webhook-to-eventbridge/cachingclient"
 	"github.com/mainak90/git-webhook-to-eventbridge/client"
 	"github.com/mainak90/git-webhook-to-eventbridge/eventbus"
 	"github.com/mainak90/git-webhook-to-eventbridge/validation"
@@ -14,19 +15,22 @@ import (
 
 var (
 	SecretParameterName = os.Getenv("SECRET_PARAM")
+	secret = cachingclient.GetSecretCached(SecretParameterName)
 )
 
 func handle(req events.ALBTargetGroupRequest) (events.ALBTargetGroupResponse, error) {
 	// Parse needed values from GitHub webhook payload
 	cfg := client.DefaultConfig()
 
-	secret, err := cache.GenerateSecretCache(cfg, SecretParameterName)
+	var err error
 
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error %s\n", err)
-		return events.ALBTargetGroupResponse{Body: err.Error(), StatusCode: 503}, nil
+	if secret == "" {
+		secret, err = cache.GenerateSecretCache(cfg, SecretParameterName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error %s\n", err)
+			return events.ALBTargetGroupResponse{Body: err.Error(), StatusCode: 503}, nil
+		}
 	}
-
 
 	event, delivery, signature := req.Headers["x-github-event"], req.Headers["x-github-delivery"], req.Headers["x-hub-signature"]
 

@@ -31,7 +31,7 @@ func eventRequestEntry(details string) eventbridge.PutEventsInput{
 	}
 }
 
-func DispatchEvent(req events.APIGatewayProxyRequest, cfg aws.Config) error {
+func DispatchEvent(req events.ALBTargetGroupRequest, cfg aws.Config) error {
 	srv := eventBridgeSession(cfg)
 	details := string([]byte(req.Body))
 
