@@ -11,6 +11,6 @@ func DefaultConfig() aws.Config {
 	if err != nil {
 		panic("unable to load sdk config, " + err.Error())
 	}
-	cfg.Region = endpoints.UsEast1RegionID
+	cfg.Region = endpoints.EuWest1RegionID
 	return cfg
 }
